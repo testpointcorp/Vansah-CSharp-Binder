@@ -1,4 +1,4 @@
-# VansahNode Integration for .NET (C#)
+# Vansah Integration for .NET (C#)
 
 ## Overview
 The `VansahNode` class provides a .NET interface to interact with the Vansah API, enabling automated testing workflows and integration with Vansah's test management capabilities. This class allows for the creation, updating, and deletion of test runs and logs, including support for uploading screenshots associated with test steps.
