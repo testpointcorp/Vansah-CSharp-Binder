@@ -438,7 +438,7 @@ namespace Vansah
 
                         requestBody.Add("attachments", array);
                     }
-                    Console.WriteLine(requestBody.ToJsonString());
+                    //Console.WriteLine(requestBody.ToJsonString());
                     httpClient.BaseAddress = new Uri(add_Test_Log);
 
                     Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json" /* or "application/json" in older versions */);
