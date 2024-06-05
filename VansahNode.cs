@@ -1,189 +1,387 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using OpenQA.Selenium;
-using System;
-using System.Buffers.Text;
-using System.Linq;
-using System.Net.Http;
+﻿using Newtonsoft.Json.Linq;
 using System.Net.Http.Headers;
-using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json.Nodes;
-using System.Xml.Linq;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Vansah
 {
     public class VansahNode
     {
 
-
         //--------------------------- ENDPOINTS -------------------------------------------------------------------------------
-        private static string api_Version = "v1";
-        private static string vansah_Url = "https://prod.vansahnode.app";
-        private static string add_Test_Run = vansah_Url + "/api/" + api_Version + "/run";
-        private static string add_Test_Log = vansah_Url + "/api/" + api_Version + "/logs";
-        private static string update_Test_Log = vansah_Url + "/api/" + api_Version + "/logs/";
-        private static string remove_Test_Log = vansah_Url + "/api/" + api_Version + "/logs/";
-        private static string remove_Test_Run = vansah_Url + "/api/" + api_Version + "/run/";
-        private static string test_Script = vansah_Url + "/api/" + api_Version + "/testCase/list/testScripts";
-        //--------------------------------------------------------------------------------------------------------------------
 
+        // The API version to be used for requests. This ensures compatibility with the specific version of the Vansah API.
+        private static string api_Version = "v1";
+
+        /// <summary>
+        /// The default URL for the Vansah API. This URL is used unless another URL is specified via the SetVansahURL property.
+        /// </summary>
+        private static string default_Vansah_URL = "https://prod.vansahnode.app";
+
+        /// <summary>
+        /// The actual URL used for the Vansah API requests. It defaults to the default_Vansah_URL but can be overridden using the SetVansahURL property.
+        /// </summary>
+        private static string vansah_URL = default_Vansah_URL;
+
+        /// <summary>
+        /// Sets a custom URL for the Vansah API. If a null value is provided, it defaults back to the predefined URL ("https://prod.vansahnode.app").
+        /// </summary>
+        public string SetVansahURL
+        {
+            set
+            {
+                vansah_URL = value ?? default_Vansah_URL;
+            }
+        }
+
+        // Endpoint for adding a test run. Constructs the URL dynamically based on the Vansah URL and API version.
+        private static string add_Test_Run => $"{vansah_URL}/api/{api_Version}/run";
+
+        // Endpoint for adding a test log. Constructs the URL dynamically, allowing for the addition of logs to a test run.
+        private static string add_Test_Log => $"{vansah_URL}/api/{api_Version}/logs";
+
+        // Endpoint for updating a test log. The specific log ID will be appended during the request to target a specific log.
+        private static string update_Test_Log => $"{vansah_URL}/api/{api_Version}/logs/";
+
+        // Endpoint for removing a test log. Similar to update, the log ID is appended to this base URL in the actual request.
+        private static string remove_Test_Log => $"{vansah_URL}/api/{api_Version}/logs/";
+
+        // Endpoint for removing a test run. The run ID will be appended to this URL to specify which run to remove.
+        private static string remove_Test_Run => $"{vansah_URL}/api/{api_Version}/run/";
+
+        // Endpoint to retrieve test scripts based on the test case. This is used to list scripts associated with a case.
+        private static string test_Script => $"{vansah_URL}/api/{api_Version}/testCase/list/testScripts";
 
         //--------------------------- INFORM YOUR UNIQUE VANSAH TOKEN HERE ---------------------------------------------------
-        private static string vansah_Token = "Your Token Here";
 
+        /// <summary>
+        /// The Vansah API token used for authenticating requests. This should be set to your unique token provided by Vansah.
+        /// </summary>
+        private string vansahToken = "Your Token Here";
+
+        /// <summary>
+        /// Sets the Vansah API token for use in authenticating requests. If a null value is provided, the token is set to a default message indicating that the token is not properly set.
+        /// </summary>
+        public string SetVansahToken
+        {
+            set
+            {
+                vansahToken = value ?? "Vansah Connect Token is not properly set";
+            }
+        }
 
         //--------------------------- INFORM IF YOU WANT TO UPDATE VANSAH HERE -----------------------------------------------
-        // 0 = NO RESULTS WILL BE SENT TO VANSAH
-        // 1 = RESULTS WILL BE SENT TO VANSAH
+
+        // Controls whether results are sent to Vansah. "0" means no results will be sent; "1" means results will be sent.
         private static readonly string updateVansah = "1";
+
         //--------------------------------------------------------------------------------------------------------------------	
 
 
-        //--------------------------------------------------------------------------------------------------------------------
-        private string testFolders_Id;  //Mandatory (GUID Test folder Identifer) Optional if issue_key is provided
-        private string jira_Issue_Key;  //Mandatory (JIRA ISSUE KEY) Optional if Test Folder is provided
-        private string sprint_Name; //Mandatory (SPRINT KEY)
-        private string case_Key;   //CaseKey ID (Example - TEST-C1) Mandatory
-        private string release_Name;  //Release Key (JIRA Release/Version Key) Mandatory
-        private string environment_Name; //Enivronment ID from Vansah for JIRA app. (Example SYS or UAT ) Mandatory
-        private string result_Name;    // Result Key such as (Result value. Options: (0 = N/A, 1= FAIL, 2= PASS, 3 = Not tested)) Mandatory
-        private bool send_Screenshot;   // true or false If Required to take a screenshot of the webPage that to be tested.
-        private string comment;  //Actual Result 	
-        private int step_Order;   //Test Step index	
-        private string test_Run_Identifier; //To be generated by API request
-        private string test_Log_Identifier; //To be generated by API request
-        private string File;
+        // Public and private properties and fields used for configuring test runs and logs:
+        /// <summary>
+        /// Gets or sets the unique identifier for the test folder in Vansah. This is mandatory unless a JiraIssueKey is provided.
+        /// </summary>
+        public string TestFolderID { get; set; }
+
+        /// <summary>
+        /// Gets or sets the JIRA issue key associated with the test. This is mandatory unless TestFolderID is provided.
+        /// </summary>
+        public string JiraIssueKey { get; set; }
+
+        /// <summary>
+        /// Gets or sets the name of the sprint associated with the test. This field is mandatory.
+        /// </summary>
+        public string SprintName { get; set; }
+
+        //The internal caseKey ID (e.g., "TEST-C1") used for identifying the test case. This is a mandatory field.
+        private string? caseKey;
+
+        /// <summary>
+        /// Gets or sets the release or version key from JIRA associated with the test. This field is mandatory.
+        /// </summary>
+        public string release_Name { get; set; }
+
+        /// <summary>
+        /// Gets or sets the environment ID from Vansah for the JIRA app (e.g., "SYS" or "UAT"). This field is mandatory.
+        /// </summary>
+        public string environment_Name { get; set; }
+
+
+        // The result of the test expressed as an integer (e.g., 0 = N/A, 1 = FAIL, 2 = PASS, 3 = Not tested). Mandatory.
+        private int resultKey;
+
+        // Boolean indicating whether a screenshot of the webpage to be tested should be uploaded. Default is false.
+        private bool uploadScreenshot = false;
+
+        // Textual comment about the actual result of the test.
+        private string comment;
+
+        // The order of the test step within the test case. This is used to identify the sequence of test steps.
+        private int step_Order;
+
+        // A unique identifier for the test run, generated by an API request.
+        private string test_Run_Identifier;
+
+        // A unique identifier for the test log, generated by an API request.
+        private string test_Log_Identifier;
+
+        // Path to the file to be used for screenshot upload. This is internally managed.
+        private string file;
+
+        // The base64-encoded string of the file specified for upload. This is used when attaching screenshots to logs.
+        private string base64FilefromUser;
+
+        // The number of test rows. This could be used for iterating over multiple test cases or steps.
         private int testRows;
+
+        // The HttpClient used for making API requests to Vansah. It is configured with necessary headers and authorization.
         private HttpClient httpClient;
 
+        // A mapping from string representations of test results to their corresponding integer codes.
+        private Dictionary<string, int> resultAsName = new Dictionary<string, int>();
 
-
-        //------------------------ VANSAH INSTANCE CREATION---------------------------------------------------------------------------------
-        //Creates an Instance of vansahnode, to set all the required field
+        /// <summary>
+        /// Initializes a new instance of the <see cref="VansahNode"/> class with specific test folder and JIRA issue identifiers.
+        /// </summary>
+        /// <param name="testFolders">The test folder identifier. Used to categorize tests within Vansah.</param>
+        /// <param name="jiraIssue">The JIRA issue key. Links the tests to a specific JIRA issue.</param>
         public VansahNode(string testFolders, string jiraIssue)
         {
-            testFolders_Id = testFolders;
-            jira_Issue_Key = jiraIssue;
-
+            TestFolderID = testFolders;
+            JiraIssueKey = jiraIssue;
+            // Initialize test result mapping
+            resultAsName.Add("NA", 0);
+            resultAsName.Add("FAILED", 1);
+            resultAsName.Add("PASSED", 2);
+            resultAsName.Add("UNTESTED", 3);
         }
-        //Default Constructor
+
+        /// <summary>
+        /// Default constructor. Initializes a new instance of the <see cref="VansahNode"/> class without initial test folder or JIRA issue identifiers.
+        /// </summary>
         public VansahNode()
         {
+            // Initialize test result mapping
+            resultAsName.Add("NA", 0);
+            resultAsName.Add("FAILED", 1);
+            resultAsName.Add("PASSED", 2);
+            resultAsName.Add("UNTESTED", 3);
         }
 
-        //------------------------ VANSAH Add TEST RUN(TEST RUN IDENTIFIER CREATION) -------------------------------------------
-        //POST prod.vansahnode.app/api/v1/run --> https://apidoc.vansah.com/#0ebf5b8f-edc5-4adb-8333-aca93059f31c
-        //creates a new test run Identifier which is then used with the other testing methods: 1) Add_test_log 2) remove_test_run
-
-        //For JIRA ISSUES
+        /// <summary>
+        /// Creates a new test run identifier for a specified JIRA issue. This identifier is used for subsequent testing actions related to the JIRA issue.
+        /// </summary>
+        /// <param name="testCase">The test case identifier associated with the JIRA issue.</param>
         public void AddTestRunFromJiraIssue(string testCase)
         {
-
-            case_Key = testCase;
-            send_Screenshot = false;
-
-            ConnectToVansahRest("AddTestRunFromJiraIssue", null);
+            caseKey = testCase;
+            ConnectToVansahRest("AddTestRunFromJiraIssue");
         }
-        //For TestFolders
+
+        /// <summary>
+        /// Creates a new test run identifier for a specified test folder. This identifier is used for subsequent testing actions related to the test folder.
+        /// </summary>
+        /// <param name="testCase">The test case identifier associated with the test folder.</param>
         public void AddTestRunFromTestFolder(string testCase)
         {
-
-            case_Key = testCase;
-            send_Screenshot = false;
-            ConnectToVansahRest("AddTestRunFromTestFolder", null);
+            caseKey = testCase;
+            ConnectToVansahRest("AddTestRunFromTestFolder");
         }
-        //------------------------------------------------------------------------------------------------------------------------
-
-
-
-        //-------------------------- VANSAH Add TEST LOG (LOG IDENTIFIER CREATION ------------------------------------------------
-        //POST prod.vansahnode.app/api/v1/logs --> https://apidoc.vansah.com/#8cad9d9e-003c-43a2-b29e-26ec2acf67a7
-        //Adds a new test log for the test case_key. Requires "test_run_identifier" from Add_test_run
-
-        public void AddTestLog(string result, string Comment, int testStepRow, bool sendScreenShot, IWebDriver driver)
+        /// <summary>
+        /// Adds a new test log for the specified test case. This method does not include a screenshot.
+        /// </summary>
+        /// <param name="result">The result of the test step. It uses predefined integer values (e.g., 0 = N/A, 1 = Fail, 2 = Pass, 3 = Not tested).</param>
+        /// <param name="Comment">A comment or description of the test result.</param>
+        /// <param name="testStepRow">The order or index of the test step within the test case.</param>
+        public void AddTestLog(int result, string Comment, int testStepRow)
         {
-
-            result_Name = result.ToLower();
+            resultKey = result;
             comment = Comment;
             step_Order = testStepRow;
-            send_Screenshot = sendScreenShot;
-            ConnectToVansahRest("AddTestLog", driver);
+            uploadScreenshot = false;
+            ConnectToVansahRest("AddTestLog");
         }
-        //-------------------------------------------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Adds a new test log for the specified test case, including a path to a screenshot file.
+        /// </summary>
+        /// <param name="result">The result of the test step. It uses predefined integer values (e.g., 0 = N/A, 1 = Fail, 2 = Pass, 3 = Not tested).</param>
+        /// <param name="Comment">A comment or description of the test result.</param>
+        /// <param name="testStepRow">The order or index of the test step within the test case.</param>
+        /// <param name="screenshotPath">The file path to the screenshot to be uploaded. The screenshot should illustrate the test result.</param>
+        public void AddTestLog(int result, string Comment, int testStepRow, string screenshotPath)
+        {
+            resultKey = result;
+            comment = Comment;
+            step_Order = testStepRow;
+            Console.WriteLine(Validatefile(screenshotPath));
+            ConnectToVansahRest("AddTestLog");
+        }
 
+        /// <summary>
+        /// Adds a new test log for the specified test case. This overload allows specifying the result as a string.
+        /// </summary>
+        /// <param name="result">The result of the test step as a string (e.g., "PASS", "FAIL"). The string is case-insensitive.</param>
+        /// <param name="Comment">A comment or description of the test result.</param>
+        /// <param name="testStepRow">The order or index of the test step within the test case.</param>
+        public void AddTestLog(string result, string Comment, int testStepRow)
+        {
+            resultKey = resultAsName.GetValueOrDefault(result.ToUpper(), 0);
+            comment = Comment;
+            step_Order = testStepRow;
+            uploadScreenshot = false;
+            ConnectToVansahRest("AddTestLog");
+        }
 
-        //------------------------- VANSAH Add QUICK TEST --------------------------------------------------------------------------
-        //POST prod.vansahnode.app/api/v1/run --> https://apidoc.vansah.com/#0ebf5b8f-edc5-4adb-8333-aca93059f31c
-        //creates a new test run and a new test log for the test case_key. By calling this endpoint, 
-        //you will create a new log entry in Vansah with the respective overal Result. 
-        //(0 = N/A, 1= FAIL, 2= PASS, 3 = Not Tested). Add_Quick_Test is useful for test cases in which there are no steps in the test script, 
-        //where only the overall result is important.
-
-        //For JIRA ISSUES
+        /// <summary>
+        /// Adds a new test log for the specified test case, including a path to a screenshot file. This overload allows specifying the result as a string.
+        /// </summary>
+        /// <param name="result">The result of the test step as a string (e.g., "PASS", "FAIL"). The string is case-insensitive.</param>
+        /// <param name="Comment">A comment or description of the test result.</param>
+        /// <param name="testStepRow">The order or index of the test step within the test case.</param>
+        /// <param name="screenshotPath">The file path to the screenshot to be uploaded. The screenshot should illustrate the test result.</param>
+        public void AddTestLog(string result, string Comment, int testStepRow, string screenshotPath)
+        {
+            resultKey = resultAsName.GetValueOrDefault(result.ToUpper(), 0);
+            comment = Comment;
+            step_Order = testStepRow;
+            Console.WriteLine(Validatefile(screenshotPath));
+            ConnectToVansahRest("AddTestLog");
+        }
+        /// <summary>
+        /// Creates a new test run and log for a specified test case linked to a JIRA issue. This is useful for test cases without steps, where only the overall result matters.
+        /// </summary>
+        /// <param name="testCase">The test case identifier.</param>
+        /// <param name="result">The overall test result as a string (e.g., "PASS", "FAIL"). The string is case-insensitive.</param>
         public void AddQuickTestFromJiraIssue(string testCase, string result)
         {
-
-            //0 = N/A, 1= FAIL, 2= PASS, 3 = Not tested
-            case_Key = testCase;
-            result_Name = result.ToLower();
-            send_Screenshot = false;
-            ConnectToVansahRest("AddQuickTestFromJiraIssue", null);
+            // Converts the string result to its corresponding integer value.
+            caseKey = testCase;
+            resultKey = resultAsName.GetValueOrDefault(result.ToUpper(), 0);
+            ConnectToVansahRest("AddQuickTestFromJiraIssue");
         }
-        //For TestFolders
+
+        /// <summary>
+        /// Creates a new test run and log for a specified test case associated with a test folder. Useful for cases without steps, focusing on the overall result.
+        /// </summary>
+        /// <param name="testCase">The test case identifier.</param>
+        /// <param name="result">The overall test result as a string (e.g., "PASS", "FAIL"). The string is case-insensitive.</param>
         public void AddQuickTestFromTestFolders(string testCase, string result)
         {
-
-            //0 = N/A, 1= FAIL, 2= PASS, 3 = Not tested
-            case_Key = testCase;
-            result_Name = result.ToLower();
-            send_Screenshot = false;
-
-            ConnectToVansahRest("AddQuickTestFromTestFolders", null);
+            // Converts the string result to its corresponding integer value.
+            caseKey = testCase;
+            resultKey = resultAsName.GetValueOrDefault(result.ToUpper(), 0);
+            ConnectToVansahRest("AddQuickTestFromTestFolders");
         }
 
-        //------------------------------------------------------------------------------------------------------------------------------
+        /// <summary>
+        /// Creates a new test run and log for a specified test case linked to a JIRA issue. This is useful for test cases without steps, where only the overall result matters.
+        /// </summary>
+        /// <param name="testCase">The test case identifier.</param>
+        /// <param name="result">The overall test result as an integer (0 = N/A, 1 = Fail, 2 = Pass, 3 = Not tested).</param>
+        public void AddQuickTestFromJiraIssue(string testCase, int result)
+        {
+            // Directly uses the integer result value.
+            caseKey = testCase;
+            resultKey = result;
+            ConnectToVansahRest("AddQuickTestFromJiraIssue");
+        }
 
-
-        //------------------------------------------ VANSAH REMOVE TEST RUN *********************************************
-        //POST prod.vansahnode.app/api/v1/run/{{test_run_identifier}} --> https://apidoc.vansah.com/#2f004698-34e9-4097-89ab-759a8d86fca8
-        //will delete the test log created from Add_test_run or Add_quick_test
-
+        /// <summary>
+        /// Creates a new test run and log for a specified test case associated with a test folder. Useful for cases without steps, focusing on the overall result.
+        /// </summary>
+        /// <param name="testCase">The test case identifier.</param>
+        /// <param name="result">The overall test result as an integer (0 = N/A, 1 = Fail, 2 = Pass, 3 = Not tested).</param>
+        public void AddQuickTestFromTestFolders(string testCase, int result)
+        {
+            // Directly uses the integer result value.
+            caseKey = testCase;
+            resultKey = result;
+            ConnectToVansahRest("AddQuickTestFromTestFolders");
+        }
+        /// <summary>
+        /// Deletes the test run created by the AddTestRunFromJiraIssue or AddTestRunFromTestFolder methods.
+        /// </summary>
         public void RemoveTestRun()
         {
-            send_Screenshot = false;
-            ConnectToVansahRest("RemoveTestRun", null);
+            ConnectToVansahRest("RemoveTestRun");
         }
-        //------------------------------------------------------------------------------------------------------------------------------
 
-        //------------------------------------------ VANSAH REMOVE TEST LOG *********************************************
-        //POST remove_test_log https://apidoc.vansah.com/#789414f9-43e7-4744-b2ca-1aaf9ee878e5
-        //will delete a test_log_identifier created from Add_test_log or Add_quick_test
-
+        /// <summary>
+        /// Deletes a test log identifier created by any AddTestLog method variant.
+        /// </summary>
         public void RemoveTestLog()
         {
-            send_Screenshot = false;
-            ConnectToVansahRest("RemoveTestLog", null);
+            ConnectToVansahRest("RemoveTestLog");
         }
-        //------------------------------------------------------------------------------------------------------------------------------
 
-
-        //------------------------------------------ VANSAH UPDATE TEST LOG ------------------------------------------------------------
-        //POST update_test_log https://apidoc.vansah.com/#ae26f43a-b918-4ec9-8422-20553f880b48
-        //will perform any updates required using the test log identifier which is returned from Add_test_log or Add_quick_test
-
-        public void UpdateTestLog(string result, string Comment, bool sendScreenShot, IWebDriver driver)
+        /// <summary>
+        /// Updates a test log with a new result and comment. This variant does not include a screenshot.
+        /// </summary>
+        /// <param name="result">The updated result of the test as an integer (e.g., 0 = N/A, 1 = Fail, 2 = Pass, 3 = Not tested).</param>
+        /// <param name="Comment">The updated comment or description of the test result.</param>
+        public void UpdateTestLog(int result, string Comment)
         {
-
-            result_Name = result.ToLower();
+            resultKey = result;
             comment = Comment;
-            send_Screenshot = sendScreenShot;
-            ConnectToVansahRest("UpdateTestLog", driver);
+            uploadScreenshot = false;
+            ConnectToVansahRest("UpdateTestLog");
         }
 
-        private void ConnectToVansahRest(string type, IWebDriver driver)
+        /// <summary>
+        /// Updates a test log with a new result and comment, and includes a path to a screenshot file.
+        /// </summary>
+        /// <param name="result">The updated result of the test as an integer.</param>
+        /// <param name="Comment">The updated comment or description of the test result.</param>
+        /// <param name="screenshotPath">The file path to the screenshot to be uploaded, illustrating the test result.</param>
+        public void UpdateTestLog(int result, string Comment, string screenshotPath)
+        {
+            resultKey = result;
+            comment = Comment;
+            Console.WriteLine(Validatefile(screenshotPath));
+            ConnectToVansahRest("UpdateTestLog");
+        }
+
+        /// <summary>
+        /// Updates a test log with a new result and comment. This variant allows specifying the result as a string.
+        /// </summary>
+        /// <param name="result">The result of the test step as a string (e.g., "PASS", "FAIL").</param>
+        /// <param name="Comment">The updated comment or description of the test result.</param>
+        public void UpdateTestLog(string result, string Comment)
+        {
+            resultKey = resultAsName.GetValueOrDefault(result.ToUpper(), 0);
+            comment = Comment;
+            uploadScreenshot = false;
+            ConnectToVansahRest("UpdateTestLog");
+        }
+
+        /// <summary>
+        /// Updates a test log with a new result and comment, including a path to a screenshot file. This variant allows specifying the result as a string.
+        /// </summary>
+        /// <param name="result">The result of the test step as a string.</param>
+        /// <param name="Comment">The updated comment or description of the test result.</param>
+        /// <param name="screenshotPath">The file path to the screenshot to be uploaded.</param>
+        public void UpdateTestLog(string result, string Comment, string screenshotPath)
+        {
+            resultKey = resultAsName.GetValueOrDefault(result.ToUpper(), 0);
+            comment = Comment;
+            Console.WriteLine(Validatefile(screenshotPath));
+            ConnectToVansahRest("UpdateTestLog");
+        }
+        /// <summary>
+        /// Connects to the Vansah REST API to perform various operations such as adding, removing, and updating test runs and logs.
+        /// This method dynamically constructs the request based on the specified type and sends it to the Vansah API.
+        /// </summary>
+        /// <param name="type">The type of operation to perform, which determines the endpoint to be called and the request body to be sent.</param>
+        /// <remarks>
+        /// This method handles the construction of HTTP requests, including setting headers, building the request body, and handling responses.
+        /// Supported types include "AddTestRunFromJiraIssue", "AddTestRunFromTestFolder", "AddTestLog", "AddQuickTestFromJiraIssue",
+        /// "AddQuickTestFromTestFolders", "RemoveTestRun", "RemoveTestLog", and "UpdateTestLog". Depending on the operation,
+        /// additional properties such as test run and log identifiers, result codes, comments, and screenshot paths might be utilized.
+        /// </remarks>
+
+        private void ConnectToVansahRest(string type)
         {
 
             if (updateVansah == "1")
@@ -196,12 +394,10 @@ namespace Vansah
                 //Adding headers
                 httpClient.DefaultRequestHeaders.Accept.Clear();
                 httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpClient.DefaultRequestHeaders.Add("Authorization", vansah_Token);
-                if (send_Screenshot)
+                httpClient.DefaultRequestHeaders.Add("Authorization", vansahToken);
+                if (uploadScreenshot)
                 {
-                     Screenshot TakeScreenshot = ((ITakesScreenshot)driver).GetScreenshot();
-                     File = TakeScreenshot.AsBase64EncodedString;
-                   
+                    base64FilefromUser = ConvertImageToBase64(file);
                 }
                 if (type == "AddTestRunFromJiraIssue")
                 {
@@ -235,16 +431,14 @@ namespace Vansah
                 if (type == "AddTestLog")
                 {
                     requestBody = AddTestLogProp();
-                    if (send_Screenshot)
+                    if (uploadScreenshot)
                     {
                         JsonArray array = new();
                         array.Add(AddAttachment(FileName()));
 
                         requestBody.Add("attachments", array);
-
-
                     }
-
+                    //Console.WriteLine(requestBody.ToJsonString());
                     httpClient.BaseAddress = new Uri(add_Test_Log);
 
                     Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json" /* or "application/json" in older versions */);
@@ -261,8 +455,8 @@ namespace Vansah
                     {
                         requestBody.Add("properties", Properties());
                     }
-                    requestBody.Add("result", resultObj(result_Name));
-                    if (send_Screenshot)
+                    requestBody.Add("result", resultObj(resultKey));
+                    if (uploadScreenshot)
                     {
                         JsonArray array = new();
                         array.Add(AddAttachment(FileName()));
@@ -286,8 +480,8 @@ namespace Vansah
                     {
                         requestBody.Add("properties", Properties());
                     }
-                    requestBody.Add("result", resultObj(result_Name));
-                    if (send_Screenshot)
+                    requestBody.Add("result", resultObj(resultKey));
+                    if (uploadScreenshot)
                     {
                         JsonArray array = new();
                         array.Add(AddAttachment(FileName()));
@@ -317,16 +511,15 @@ namespace Vansah
                 {
                     requestBody = new();
 
-                    requestBody.Add("result", resultObj(result_Name));
+                    requestBody.Add("result", resultObj(resultKey));
                     requestBody.Add("actualResult", comment);
-                    if (send_Screenshot)
+                    if (uploadScreenshot)
                     {
                         JsonArray array = new();
                         array.Add(AddAttachment(FileName()));
 
                         requestBody.Add("attachments", array);
                     }
-
                     httpClient.BaseAddress = new Uri(update_Test_Log + test_Log_Identifier);
                     Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json" /* or "application/json" in older versions */);
                     response = httpClient.PutAsync("", Content).Result;
@@ -375,10 +568,10 @@ namespace Vansah
                     }
                     if (type == "RemoveTestRun")
                     {
-                        Console.WriteLine($"Test Run has been removed Successfully for the testCase : {case_Key} RUN ID : {test_Run_Identifier}");
+                        Console.WriteLine($"Test Run has been removed Successfully for the testCase : {caseKey} RUN ID : {test_Run_Identifier}");
 
                     }
-                     if (type == "UpdateTestLog")
+                    if (type == "UpdateTestLog")
                     {
                         Console.WriteLine($"Test Log has been updated Successfully LOG ID : {test_Log_Identifier}");
                     }
@@ -399,36 +592,6 @@ namespace Vansah
                 Console.WriteLine("Sending Test Results to Vansah TM for JIRA is Disabled");
             }
         }
-        //Setter and Getter's 
-        //To Set the TestFolderID 
-        public void SetTestFolders_Id(string testFolders_Id)
-        {
-            this.testFolders_Id = testFolders_Id;
-        }
-
-        //To Set the JIRA_ISSUE_KEY
-        public void SetJira_Issue_Key(string jira_Issue_Key)
-        {
-            this.jira_Issue_Key = jira_Issue_Key;
-        }
-
-        //To Set the SPRINT_NAME
-        public void SetSprint_Name(string sprint_Name)
-        {
-            this.sprint_Name = sprint_Name;
-        }
-
-        //To Set the RELEASE_NAME
-        public void SetRelease_Name(string release_Name)
-        {
-            this.release_Name = release_Name;
-        }
-
-        //To Set the ENVIRONMENT_NAME
-        public void SetEnvironment_Name(string environment_Name)
-        {
-            this.environment_Name = environment_Name;
-        }
 
         //JsonObject - Test Run Properties 
         private JsonObject Properties()
@@ -440,12 +603,12 @@ namespace Vansah
             release.Add("name", release_Name);
 
             JsonObject sprint = new();
-            sprint.Add("name", sprint_Name);
+            sprint.Add("name", SprintName);
 
             JsonObject Properties = new();
-            if (sprint_Name != null)
+            if (SprintName != null)
             {
-                if (sprint_Name.Length >= 2)
+                if (SprintName.Length >= 2)
                 {
                     Properties.Add("sprint", sprint);
                 }
@@ -474,11 +637,11 @@ namespace Vansah
         {
 
             JsonObject testCase = new();
-            if (case_Key != null)
+            if (caseKey != null)
             {
-                if (case_Key.Length >= 2)
+                if (caseKey.Length >= 2)
                 {
-                    testCase.Add("key", case_Key);
+                    testCase.Add("key", caseKey);
                 }
             }
             else
@@ -489,12 +652,12 @@ namespace Vansah
             return testCase;
         }
         //JsonObject - To Add Result ID
-        private JsonObject resultObj(string result)
+        private JsonObject resultObj(int result)
         {
 
             JsonObject resultID = new();
 
-            resultID.Add("name", result);
+            resultID.Add("id", result);
 
 
             return resultID;
@@ -504,12 +667,12 @@ namespace Vansah
         {
 
             JsonObject asset = new();
-            if (jira_Issue_Key != null)
+            if (JiraIssueKey != null)
             {
-                if (jira_Issue_Key.Length >= 2)
+                if (JiraIssueKey.Length >= 2)
                 {
                     asset.Add("type", "issue");
-                    asset.Add("key", jira_Issue_Key);
+                    asset.Add("key", JiraIssueKey);
                 }
             }
             else
@@ -525,12 +688,12 @@ namespace Vansah
         {
 
             JsonObject asset = new();
-            if (testFolders_Id != null)
+            if (TestFolderID != null)
             {
-                if (testFolders_Id.Length >= 2)
+                if (TestFolderID.Length >= 2)
                 {
                     asset.Add("type", "folder");
-                    asset.Add("identifier", testFolders_Id);
+                    asset.Add("identifier", TestFolderID);
                 }
             }
             else
@@ -553,7 +716,7 @@ namespace Vansah
             stepNumber.Add("number", step_Order);
 
             JsonObject testResult = new();
-            testResult.Add("name", result_Name);
+            testResult.Add("id", resultKey);
 
             JsonObject testLogProp = new();
 
@@ -569,25 +732,56 @@ namespace Vansah
             return testLogProp;
         }
         //JsonObject - To Add Add Attachments to a Test Log
-        private JsonObject AddAttachment(string file)
+        private JsonObject AddAttachment(string[] file)
         {
 
             JsonObject attachmentsInfo = new();
-            attachmentsInfo.Add("name", file);
-            attachmentsInfo.Add("extension", "png");
-            attachmentsInfo.Add("file", File);
+            attachmentsInfo.Add("name", file[0]);
+            attachmentsInfo.Add("extension", file[1]);
+            attachmentsInfo.Add("file", base64FilefromUser);
 
             return attachmentsInfo;
 
         }
 
-        //Set FileName
-        private string FileName()
+        private string[] FileName()
+        {   
+            string fileName = Path.GetFileNameWithoutExtension(file);
+
+            string fileExtension = Path.GetExtension(file);
+            string[] file_Name = { fileName, fileExtension };
+            return file_Name;
+        }
+
+        private string Validatefile(String filePath)
         {
+            bool ispresent = File.Exists(filePath);
 
-            string filename = Path.GetRandomFileName().Replace(".", "");
+            if (ispresent)
+            {
 
-            return filename;
+                uploadScreenshot = true;
+                file = filePath;
+                return "Screenshot file is getting uploaded";
+
+            }
+
+            return "Provided Screenshot File cannot be located \nPlease provide correct filePath";
+        }
+
+        private string ConvertImageToBase64(string imagePath)
+        {
+            try
+            {
+                byte[] imageBytes = File.ReadAllBytes(imagePath);
+                string base64String = Convert.ToBase64String(imageBytes);
+                return base64String;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("An error occurred: " + ex.Message);
+                return null;
+            }
         }
 
 
