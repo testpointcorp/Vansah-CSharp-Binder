@@ -40,6 +40,11 @@ vansahNode.AddTestRunFromJiraIssue("JIRA_ISSUE_KEY");
 // For a test folder
 vansahNode.AddTestRunFromTestFolder("TEST_FOLDER_ID");
 
+// Quick Test
+vansahNode.AddQuickTestFromJiraIssue(testCaseKey, result);   
+
+vansahNode.AddQuickTestFromTestFolder(testCaseKey, result);   
+
 ```
 
 ### Adding a Test Log
